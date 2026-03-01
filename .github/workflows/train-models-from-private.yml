@@ -113,4 +113,4 @@ jobs:
         working-directory: workspace
         run: |
           git fetch origin "$MODEL_ARTIFACT_BRANCH" --depth=1
-          git rev-parse --verify "origin/$MODEL_ARTIFACT_BRANCH"
+          git rev-parse --verify FETCH_HEAD
