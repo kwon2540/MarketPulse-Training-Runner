@@ -1,6 +1,14 @@
 name: Train MarketPulse (Private Source)
 
 on:
+  workflow_call:
+    inputs:
+      triggered_by:
+        required: false
+        type: string
+      force:
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       triggered_by:

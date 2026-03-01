@@ -1,0 +1,26 @@
+name: Train MarketPulse (Legacy Lite Alias)
+
+on:
+  workflow_dispatch:
+    inputs:
+      triggered_by:
+        description: "Who triggered this run (railway/manual/scheduler)"
+        required: false
+        default: "manual"
+        type: string
+      force:
+        description: "Force run"
+        required: false
+        default: "false"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  run-full-via-alias:
+    uses: ./.github/workflows/train-models-from-private.yml
+    with:
+      triggered_by: ${{ github.event.inputs.triggered_by }}
+      force: ${{ github.event.inputs.force }}
+    secrets: inherit

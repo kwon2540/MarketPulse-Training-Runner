@@ -22,6 +22,8 @@ Set these in this public repo (`Settings -> Secrets and variables -> Actions`):
   - `workflow_dispatch` only (triggered by Railway scheduler or manual dispatch)
 - Training set:
   - Always `full`: xgboost,catboost,transformer,informer,tabnet
+- Legacy compatibility:
+  - `.github/workflows/train-models-lite.yml` is kept as a dispatch alias and internally delegates to full training.
 
 ## Important Notes
 - Do not add `pull_request` trigger in this public repo for this workflow.
