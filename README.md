@@ -20,10 +20,9 @@ Set these in this public repo (`Settings -> Secrets and variables -> Actions`):
 - File: `.github/workflows/train-models-from-private.yml`
 - Triggers:
   - Manual (`workflow_dispatch`)
-  - Scheduled every 4 hours
-- Modes:
-  - `lite`: xgboost,catboost
-  - `full`: xgboost,catboost,transformer,informer,tabnet
+  - Scheduled every 2 hours (UTC)
+- Training set:
+  - Always `full`: xgboost,catboost,transformer,informer,tabnet
 
 ## Important Notes
 - Do not add `pull_request` trigger in this public repo for this workflow.

@@ -2,22 +2,9 @@ name: Train MarketPulse (Private Source)
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "Training mode: lite or full"
-        required: true
-        default: "lite"
-        type: choice
-        options:
-          - lite
-          - full
-      force:
-        description: "Reserved flag for compatibility"
-        required: false
-        default: "false"
-        type: string
+    inputs: {}
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "0 */2 * * *"
 
 concurrency:
   group: marketpulse-public-runner
@@ -48,18 +35,8 @@ jobs:
         id: modelset
         shell: bash
         run: |
-          MODE="${{ github.event.inputs.mode }}"
-          if [ -z "$MODE" ]; then
-            MODE="lite"
-          fi
-
-          if [ "$MODE" = "full" ]; then
-            echo "train_models=xgboost,catboost,transformer,informer,tabnet" >> "$GITHUB_OUTPUT"
-            echo "required_models=xgboost,catboost,transformer,informer,tabnet" >> "$GITHUB_OUTPUT"
-          else
-            echo "train_models=xgboost,catboost" >> "$GITHUB_OUTPUT"
-            echo "required_models=xgboost,catboost" >> "$GITHUB_OUTPUT"
-          fi
+          echo "train_models=xgboost,catboost,transformer,informer,tabnet" >> "$GITHUB_OUTPUT"
+          echo "required_models=xgboost,catboost,transformer,informer,tabnet" >> "$GITHUB_OUTPUT"
 
       - name: Clone private training repository
         env:
