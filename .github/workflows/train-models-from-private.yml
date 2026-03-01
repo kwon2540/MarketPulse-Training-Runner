@@ -2,9 +2,17 @@ name: Train MarketPulse (Private Source)
 
 on:
   workflow_dispatch:
-    inputs: {}
-  schedule:
-    - cron: "0 */2 * * *"
+    inputs:
+      triggered_by:
+        description: "Who triggered this run (railway/manual/scheduler)"
+        required: false
+        default: "manual"
+        type: string
+      force:
+        description: "Force run"
+        required: false
+        default: "false"
+        type: string
 
 concurrency:
   group: marketpulse-public-runner

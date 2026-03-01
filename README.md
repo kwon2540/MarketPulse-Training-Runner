@@ -19,8 +19,7 @@ Set these in this public repo (`Settings -> Secrets and variables -> Actions`):
 ## Workflow
 - File: `.github/workflows/train-models-from-private.yml`
 - Triggers:
-  - Manual (`workflow_dispatch`)
-  - Scheduled every 2 hours (UTC)
+  - `workflow_dispatch` only (triggered by Railway scheduler or manual dispatch)
 - Training set:
   - Always `full`: xgboost,catboost,transformer,informer,tabnet
 
