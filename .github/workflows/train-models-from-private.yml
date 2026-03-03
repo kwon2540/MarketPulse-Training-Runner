@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   train:
@@ -89,16 +89,6 @@ jobs:
             tensorflow-cpu==2.16.1 \
             pytorch-tabnet==4.1.0
 
-      - name: Validate training scripts
-        working-directory: workspace
-        run: |
-          set -euo pipefail
-          test -f train_xgboost_v3.py
-          test -f train_catboost_30m.py
-          test -f train_transformer_v4.py
-          test -f train_informer.py
-          test -f train_tabnet.py
-
       - name: Run training
         working-directory: workspace
         env:
@@ -110,13 +100,19 @@ jobs:
           TRAIN_REQUIRED_MODELS: ${{ steps.modelset.outputs.required_models }}
         run: |
           set -euo pipefail
+          test -f train_xgboost_v3.py
+          test -f train_catboost_30m.py
+          test -f train_transformer_v4.py
+          test -f train_informer.py
+          test -f train_tabnet.py
+
           python train_xgboost_v3.py
           python train_catboost_30m.py
           python train_transformer_v4.py
           python train_informer.py
           python train_tabnet.py
 
-      - name: Build artifact manifest and stage outputs
+      - name: Publish model artifacts
         working-directory: workspace
         run: |
           set -euo pipefail
@@ -126,94 +122,33 @@ jobs:
             "models/xgboost_feature_columns_v3.json"
             "models/xgboost_performance_30m_v3.json"
             "models/transformer_model_v4.keras"
-            "models/transformer_scaler_v4.pkl"
             "models/transformer_features_v4.json"
+            "models/transformer_scaler_v4.pkl"
             "models/transformer_performance_v4.json"
             "models/informer_model_v1.pt"
-            "models/informer_scaler_v1.pkl"
             "models/informer_features_v1.json"
+            "models/informer_scaler_v1.pkl"
             "models/informer_performance_v1.json"
             "models/tabnet_model_v1.zip"
-            "models/tabnet_scaler_v1.pkl"
             "models/tabnet_features_v1.json"
+            "models/tabnet_scaler_v1.pkl"
             "models/tabnet_performance_v1.json"
             "models/catboost_model_30m_v1.cbm"
             "models/catboost_features_30m_v1.json"
             "models/catboost_performance_30m_v1.json"
           )
 
-          missing=0
+          rm -rf /tmp/model-artifacts-out
+          mkdir -p /tmp/model-artifacts-out
+
           for f in "${required_files[@]}"; do
             if [ ! -f "$f" ]; then
               echo "Missing required artifact: $f" >&2
-              missing=1
+              exit 1
             fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-          python - <<'PY'
-import hashlib
-import json
-from datetime import datetime, timezone
-from pathlib import Path
-
-files = [
-    "models/xgboost_model_30m_v3.json",
-    "models/xgboost_feature_columns_v3.json",
-    "models/xgboost_performance_30m_v3.json",
-    "models/transformer_model_v4.keras",
-    "models/transformer_scaler_v4.pkl",
-    "models/transformer_features_v4.json",
-    "models/transformer_performance_v4.json",
-    "models/informer_model_v1.pt",
-    "models/informer_scaler_v1.pkl",
-    "models/informer_features_v1.json",
-    "models/informer_performance_v1.json",
-    "models/tabnet_model_v1.zip",
-    "models/tabnet_scaler_v1.pkl",
-    "models/tabnet_features_v1.json",
-    "models/tabnet_performance_v1.json",
-    "models/catboost_model_30m_v1.cbm",
-    "models/catboost_features_30m_v1.json",
-    "models/catboost_performance_30m_v1.json",
-]
-
-entries = []
-h = hashlib.sha256()
-for rel in files:
-    p = Path(rel)
-    data = p.read_bytes()
-    digest = hashlib.sha256(data).hexdigest()
-    entries.append({"path": rel, "sha256": digest, "size": len(data)})
-    h.update(rel.encode("utf-8"))
-    h.update(b":")
-    h.update(digest.encode("utf-8"))
-    h.update(b"\n")
-
-manifest = {
-    "generated_at": datetime.now(timezone.utc).isoformat(),
-    "files": entries,
-    "signature": h.hexdigest(),
-}
-Path("models/manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-print("manifest generated", manifest["signature"])
-PY
-
-          rm -rf /tmp/model-artifacts-out
-          mkdir -p /tmp/model-artifacts-out
-          for f in "${required_files[@]}" "models/manifest.json"; do
             mkdir -p "/tmp/model-artifacts-out/$(dirname "$f")"
             cp "$f" "/tmp/model-artifacts-out/$f"
           done
-
-      - name: Publish model artifacts branch
-        working-directory: workspace
-        env:
-          TARGET_REPO_PAT: ${{ secrets.TARGET_REPO_PAT }}
-        run: |
-          set -euo pipefail
 
           git fetch origin "$MODEL_ARTIFACT_BRANCH" --depth=1 || true
           if git show-ref --verify --quiet "refs/remotes/origin/${MODEL_ARTIFACT_BRANCH}"; then
