@@ -150,6 +150,9 @@ jobs:
             cp "$f" "/tmp/model-artifacts-out/$f"
           done
 
+          git reset --hard
+          git clean -fdx
+
           if git fetch origin "$MODEL_ARTIFACT_BRANCH" --depth=1; then
             git checkout -f -B "$MODEL_ARTIFACT_BRANCH" FETCH_HEAD
           else
