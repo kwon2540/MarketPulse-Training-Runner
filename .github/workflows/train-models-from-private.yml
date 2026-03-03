@@ -151,7 +151,7 @@ jobs:
           done
 
           if git fetch origin "$MODEL_ARTIFACT_BRANCH" --depth=1; then
-            git checkout -B "$MODEL_ARTIFACT_BRANCH" FETCH_HEAD
+            git checkout -f -B "$MODEL_ARTIFACT_BRANCH" FETCH_HEAD
           else
             git checkout --orphan "$MODEL_ARTIFACT_BRANCH"
             git rm -rf . >/dev/null 2>&1 || true
