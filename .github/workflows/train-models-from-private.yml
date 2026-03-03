@@ -27,12 +27,12 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     env:
       TARGET_REPO: kwon2540/MarketPulse-Railway
       TARGET_REF: main
@@ -58,6 +58,7 @@ jobs:
         env:
           TARGET_REPO_PAT: ${{ secrets.TARGET_REPO_PAT }}
         run: |
+          set -euo pipefail
           if [ -z "$TARGET_REPO_PAT" ]; then
             echo "TARGET_REPO_PAT secret is missing" >&2
             exit 1
@@ -73,6 +74,7 @@ jobs:
 
       - name: Install training dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
           python -m pip install --no-cache-dir \
@@ -87,6 +89,16 @@ jobs:
             tensorflow-cpu==2.16.1 \
             pytorch-tabnet==4.1.0
 
+      - name: Validate training scripts
+        working-directory: workspace
+        run: |
+          set -euo pipefail
+          test -f train_xgboost_v3.py
+          test -f train_catboost_30m.py
+          test -f train_transformer_v4.py
+          test -f train_informer.py
+          test -f train_tabnet.py
+
       - name: Run training
         working-directory: workspace
         env:
@@ -97,13 +109,141 @@ jobs:
           TRAIN_MODELS: ${{ steps.modelset.outputs.train_models }}
           TRAIN_REQUIRED_MODELS: ${{ steps.modelset.outputs.required_models }}
         run: |
-          python kaggle/train_all.py 2>&1 | tee /tmp/train.log
-          echo "----- normalized result -----"
-          grep -E "^TRAINING_RESULT=|^FAIL_REASON=" /tmp/train.log || true
+          set -euo pipefail
+          python train_xgboost_v3.py
+          python train_catboost_30m.py
+          python train_transformer_v4.py
+          python train_informer.py
+          python train_tabnet.py
+
+      - name: Build artifact manifest and stage outputs
+        working-directory: workspace
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            "models/xgboost_model_30m_v3.json"
+            "models/xgboost_feature_columns_v3.json"
+            "models/xgboost_performance_30m_v3.json"
+            "models/transformer_model_v4.keras"
+            "models/transformer_scaler_v4.pkl"
+            "models/transformer_features_v4.json"
+            "models/transformer_performance_v4.json"
+            "models/informer_model_v1.pt"
+            "models/informer_scaler_v1.pkl"
+            "models/informer_features_v1.json"
+            "models/informer_performance_v1.json"
+            "models/tabnet_model_v1.zip"
+            "models/tabnet_scaler_v1.pkl"
+            "models/tabnet_features_v1.json"
+            "models/tabnet_performance_v1.json"
+            "models/catboost_model_30m_v1.cbm"
+            "models/catboost_features_30m_v1.json"
+            "models/catboost_performance_30m_v1.json"
+          )
+
+          missing=0
+          for f in "${required_files[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "Missing required artifact: $f" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          python - <<'PY'
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+files = [
+    "models/xgboost_model_30m_v3.json",
+    "models/xgboost_feature_columns_v3.json",
+    "models/xgboost_performance_30m_v3.json",
+    "models/transformer_model_v4.keras",
+    "models/transformer_scaler_v4.pkl",
+    "models/transformer_features_v4.json",
+    "models/transformer_performance_v4.json",
+    "models/informer_model_v1.pt",
+    "models/informer_scaler_v1.pkl",
+    "models/informer_features_v1.json",
+    "models/informer_performance_v1.json",
+    "models/tabnet_model_v1.zip",
+    "models/tabnet_scaler_v1.pkl",
+    "models/tabnet_features_v1.json",
+    "models/tabnet_performance_v1.json",
+    "models/catboost_model_30m_v1.cbm",
+    "models/catboost_features_30m_v1.json",
+    "models/catboost_performance_30m_v1.json",
+]
+
+entries = []
+h = hashlib.sha256()
+for rel in files:
+    p = Path(rel)
+    data = p.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    entries.append({"path": rel, "sha256": digest, "size": len(data)})
+    h.update(rel.encode("utf-8"))
+    h.update(b":")
+    h.update(digest.encode("utf-8"))
+    h.update(b"\n")
+
+manifest = {
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "files": entries,
+    "signature": h.hexdigest(),
+}
+Path("models/manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print("manifest generated", manifest["signature"])
+PY
+
+          rm -rf /tmp/model-artifacts-out
+          mkdir -p /tmp/model-artifacts-out
+          for f in "${required_files[@]}" "models/manifest.json"; do
+            mkdir -p "/tmp/model-artifacts-out/$(dirname "$f")"
+            cp "$f" "/tmp/model-artifacts-out/$f"
+          done
+
+      - name: Publish model artifacts branch
+        working-directory: workspace
+        env:
+          TARGET_REPO_PAT: ${{ secrets.TARGET_REPO_PAT }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin "$MODEL_ARTIFACT_BRANCH" --depth=1 || true
+          if git show-ref --verify --quiet "refs/remotes/origin/${MODEL_ARTIFACT_BRANCH}"; then
+            git checkout -B "$MODEL_ARTIFACT_BRANCH" "origin/$MODEL_ARTIFACT_BRANCH"
+          else
+            git checkout --orphan "$MODEL_ARTIFACT_BRANCH"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          mkdir -p models
+          cp -R /tmp/model-artifacts-out/models/. models/
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add models
+          if git diff --cached --quiet; then
+            echo "No artifact changes detected after training" >&2
+            exit 1
+          fi
+
+          stamp=$(date -u +"%Y-%m-%d %H:%M")
+          git commit -m "chore: update model artifacts (${stamp} UTC)"
+          git push origin "$MODEL_ARTIFACT_BRANCH"
 
       - name: Verify model-artifacts head
         if: success()
         working-directory: workspace
         run: |
+          set -euo pipefail
           git fetch origin "$MODEL_ARTIFACT_BRANCH" --depth=1
           git rev-parse --verify FETCH_HEAD
