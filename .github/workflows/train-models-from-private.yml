@@ -9,6 +9,18 @@ on:
       force:
         required: false
         type: string
+      model_families:
+        required: false
+        type: string
+      required_families:
+        required: false
+        type: string
+      experiment_set:
+        required: false
+        type: string
+      experiment_ids:
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       triggered_by:
@@ -20,6 +32,26 @@ on:
         description: "Force run"
         required: false
         default: "false"
+        type: string
+      model_families:
+        description: "legacy_full or catboost_family"
+        required: false
+        default: "legacy_full"
+        type: string
+      required_families:
+        description: "Required families/targets to succeed"
+        required: false
+        default: "legacy_full"
+        type: string
+      experiment_set:
+        description: "Experiment set when using family trainers"
+        required: false
+        default: "catboost_research_v1"
+        type: string
+      experiment_ids:
+        description: "Optional comma-separated experiment ids"
+        required: false
+        default: ""
         type: string
 
 concurrency:
@@ -51,8 +83,14 @@ jobs:
         id: modelset
         shell: bash
         run: |
-          echo "train_models=xgboost,catboost,transformer,informer,tabnet" >> "$GITHUB_OUTPUT"
-          echo "required_models=xgboost,catboost,transformer,informer,tabnet" >> "$GITHUB_OUTPUT"
+          model_families="${{ inputs.model_families || github.event.inputs.model_families || 'legacy_full' }}"
+          required_families="${{ inputs.required_families || github.event.inputs.required_families || 'legacy_full' }}"
+          experiment_set="${{ inputs.experiment_set || github.event.inputs.experiment_set || 'catboost_research_v1' }}"
+          experiment_ids="${{ inputs.experiment_ids || github.event.inputs.experiment_ids || '' }}"
+          echo "model_families=${model_families}" >> "$GITHUB_OUTPUT"
+          echo "required_families=${required_families}" >> "$GITHUB_OUTPUT"
+          echo "experiment_set=${experiment_set}" >> "$GITHUB_OUTPUT"
+          echo "experiment_ids=${experiment_ids}" >> "$GITHUB_OUTPUT"
 
       - name: Clone private training repository
         env:
@@ -96,86 +134,27 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TARGET_REPO_PAT }}
           MODEL_ARTIFACT_REPO: kwon2540/MarketPulse-Railway
           MODEL_ARTIFACT_BRANCH: model-artifacts
-          TRAIN_MODELS: ${{ steps.modelset.outputs.train_models }}
-          TRAIN_REQUIRED_MODELS: ${{ steps.modelset.outputs.required_models }}
+          TRAIN_MODEL_FAMILIES: ${{ steps.modelset.outputs.model_families }}
+          TRAIN_REQUIRED_FAMILIES: ${{ steps.modelset.outputs.required_families }}
+          TRAIN_EXPERIMENT_SET: ${{ steps.modelset.outputs.experiment_set }}
+          TRAIN_EXPERIMENT_IDS: ${{ steps.modelset.outputs.experiment_ids }}
         run: |
           set -euo pipefail
-          test -f train_xgboost_v3.py
-          test -f train_catboost_30m.py
-          test -f train_transformer_v4.py
-          test -f train_informer.py
-          test -f train_tabnet.py
-
-          python train_xgboost_v3.py
-          python train_catboost_30m.py
-          python train_transformer_v4.py
-          python train_informer.py
-          python train_tabnet.py
+          python train_family_runner.py 2>&1 | tee /tmp/train.log
+          echo "----- normalized result -----"
+          grep -E "^TRAINING_RESULT=|^FAIL_REASON=" /tmp/train.log || true
 
       - name: Publish model artifacts
+        if: success()
         working-directory: workspace
+        env:
+          TRAIN_MODEL_FAMILIES: ${{ steps.modelset.outputs.model_families }}
+          TRAIN_EXPERIMENT_SET: ${{ steps.modelset.outputs.experiment_set }}
+          MODEL_ARTIFACT_BRANCH: ${{ env.MODEL_ARTIFACT_BRANCH }}
+          MODEL_ARTIFACT_COMMIT_MESSAGE: "Update model artifacts (${{ steps.modelset.outputs.model_families }} / ${{ steps.modelset.outputs.experiment_set }})"
         run: |
           set -euo pipefail
-
-          required_files=(
-            "models/xgboost_model_30m_v3.json"
-            "models/xgboost_feature_columns_v3.json"
-            "models/xgboost_performance_30m_v3.json"
-            "models/transformer_model_v4.keras"
-            "models/transformer_features_v4.json"
-            "models/transformer_scaler_v4.pkl"
-            "models/transformer_performance_v4.json"
-            "models/informer_model_v1.pt"
-            "models/informer_features_v1.json"
-            "models/informer_scaler_v1.pkl"
-            "models/informer_performance_v1.json"
-            "models/tabnet_model_v1.zip"
-            "models/tabnet_features_v1.json"
-            "models/tabnet_scaler_v1.pkl"
-            "models/tabnet_performance_v1.json"
-            "models/catboost_model_30m_v1.cbm"
-            "models/catboost_features_30m_v1.json"
-            "models/catboost_performance_30m_v1.json"
-          )
-
-          rm -rf /tmp/model-artifacts-out
-          mkdir -p /tmp/model-artifacts-out
-
-          for f in "${required_files[@]}"; do
-            if [ ! -f "$f" ]; then
-              echo "Missing required artifact: $f" >&2
-              exit 1
-            fi
-            mkdir -p "/tmp/model-artifacts-out/$(dirname "$f")"
-            cp "$f" "/tmp/model-artifacts-out/$f"
-          done
-
-          git reset --hard
-          git clean -fdx
-
-          if git fetch origin "$MODEL_ARTIFACT_BRANCH" --depth=1; then
-            git checkout -f -B "$MODEL_ARTIFACT_BRANCH" FETCH_HEAD
-          else
-            git checkout --orphan "$MODEL_ARTIFACT_BRANCH"
-            git rm -rf . >/dev/null 2>&1 || true
-          fi
-
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-          mkdir -p models
-          cp -R /tmp/model-artifacts-out/models/. models/
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add models
-          if git diff --cached --quiet; then
-            echo "No artifact changes detected after training" >&2
-            exit 1
-          fi
-
-          stamp=$(date -u +"%Y-%m-%d %H:%M")
-          git commit -m "chore: update model artifacts (${stamp} UTC)"
-          git push origin "$MODEL_ARTIFACT_BRANCH"
+          python publish_model_artifacts.py
 
       - name: Verify model-artifacts head
         if: success()

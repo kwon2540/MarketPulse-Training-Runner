@@ -20,8 +20,11 @@ Set these in this public repo (`Settings -> Secrets and variables -> Actions`):
 - File: `.github/workflows/train-models-from-private.yml`
 - Triggers:
   - `workflow_dispatch` only (triggered by Railway scheduler or manual dispatch)
-- Training set:
-  - Always `full`: xgboost,catboost,transformer,informer,tabnet
+- Default training set:
+  - `legacy_full`: xgboost,catboost,transformer,informer,tabnet
+- Experiment mode:
+  - `model_families=catboost_family`
+  - `experiment_set=catboost_research_v1` or explicit `experiment_ids`
 - Legacy compatibility:
   - `.github/workflows/train-models-lite.yml` is kept as a dispatch alias and internally delegates to full training.
 

@@ -13,6 +13,26 @@ on:
         required: false
         default: "false"
         type: string
+      model_families:
+        description: "legacy_full or catboost_family"
+        required: false
+        default: "legacy_full"
+        type: string
+      required_families:
+        description: "Required families/targets to succeed"
+        required: false
+        default: "legacy_full"
+        type: string
+      experiment_set:
+        description: "Experiment set when using family trainers"
+        required: false
+        default: "catboost_research_v1"
+        type: string
+      experiment_ids:
+        description: "Optional comma-separated experiment ids"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -23,4 +43,8 @@ jobs:
     with:
       triggered_by: ${{ github.event.inputs.triggered_by }}
       force: ${{ github.event.inputs.force }}
+      model_families: ${{ github.event.inputs.model_families }}
+      required_families: ${{ github.event.inputs.required_families }}
+      experiment_set: ${{ github.event.inputs.experiment_set }}
+      experiment_ids: ${{ github.event.inputs.experiment_ids }}
     secrets: inherit
